@@ -8,7 +8,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gradio_gpu_monitor"
-version = "0.0.1"
+version = "0.0.2"
 description = "GPU Monitor with Custom Gradio HTML component"
 readme = "README.md"
 license = "apache-2.0"

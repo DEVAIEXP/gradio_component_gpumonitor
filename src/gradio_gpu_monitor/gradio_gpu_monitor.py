@@ -2,26 +2,15 @@ import gradio as gr
 import subprocess
 import shutil
 
+
 def get_gpu_stats(*args):
     if not shutil.which("nvidia-smi"):
-        return {
-            "hasNvidiaSmi": False, "error": "nvidia-smi not found. Showing mock data.",
-            "gpus": [
-                {
-                    "index": 0, "name": "NVIDIA GeForce RTX 4090", "temperature": 65, "fan": {"speed": 45},
-                    "utilization": {"gpu": 85, "memory": 40}, "memory": {"total": 24576, "used": 18432, "free": 6144},
-                    "power": {"draw": 350.5, "limit": 450.0}, "clocks": {"graphics": 2520, "memory": 10501}
-                },
-                {
-                    "index": 1, "name": "NVIDIA GeForce RTX 3080", "temperature": 42, "fan": {"speed": 30},
-                    "utilization": {"gpu": 15, "memory": 10}, "memory": {"total": 10240, "used": 1024, "free": 9216},
-                    "power": {"draw": 120.0, "limit": 320.0}, "clocks": {"graphics": 800, "memory": 5000}
-                }
-            ]
-        }
+        return {"hasNvidiaSmi": False, "gpus": []}
+
     try:
         cmd = "nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,utilization.memory,memory.total,memory.free,memory.used,power.draw,power.limit,clocks.current.graphics,clocks.current.memory,fan.speed --format=csv,noheader,nounits"
         output = subprocess.check_output(cmd, shell=True, text=True)
+        
         gpus = []
         for line in output.strip().split('\n'):
             parts = [p.strip() for p in line.split(',')]
@@ -39,13 +28,7 @@ def get_gpu_stats(*args):
         return {"hasNvidiaSmi": False, "gpus": [], "error": str(e)}
 
 class GPUMonitor(gr.HTML):
-    def __init__(
-        self, 
-        update_interval=1000,
-        show_last_updated=True,
-        **kwargs
-    ):
-                
+    def __init__(self, update_interval=1000, show_last_updated=True, **kwargs):
         html_template = """
         <div class="gpu-monitor-container">
             <div class="gpu-header">
@@ -56,7 +39,7 @@ class GPUMonitor(gr.HTML):
             <div id="gpu-root" class="gpu-grid"></div>
         </div>
         """
-
+        
         css_template = """
             .gpu-monitor-container {
                 font-family: "Inter", sans-serif;
@@ -263,146 +246,172 @@ class GPUMonitor(gr.HTML):
         """
 
         js_on_load = """
-        const root = element.querySelector('#gpu-root');
-        const timeVal = element.querySelector('#gpu-time-val');
-        const alertBox = element.querySelector('#gpu-alert');
-        let intervalId;
-        let renderedGpuCount = -1; 
+        const root = element.querySelector("#gpu-root");
+        const timeVal = element.querySelector("#gpu-time-val");
+        const alertBox = element.querySelector("#gpu-alert");
+        let renderedGpuCount = -1;
 
-        const formatMemory = (mb) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
-        const getUtilColor = (val) => val < 30 ? 'bg-emerald-500' : val < 70 ? 'bg-amber-500' : 'bg-rose-500';
-        const getTempColor = (temp) => temp < 50 ? 'text-emerald-500' : temp < 80 ? 'text-amber-500' : 'text-rose-500';
+        const MOCK_DATA = {
+        hasNvidiaSmi: false,
+        isMock: true,
+        gpus: [
+            {
+            index: 0,
+            name: "NVIDIA GeForce RTX 4090 (Demo)",
+            temperature: 55,
+            fan: { speed: 35 },
+            utilization: { gpu: 42, memory: 30 },
+            memory: { total: 24576, used: 8192 },
+            power: { draw: 150.5, limit: 450.0 },
+            clocks: { graphics: 2520 },
+            },
+            {
+            index: 1,
+            name: "NVIDIA GeForce RTX 4090 (Demo)",
+            temperature: 38,
+            fan: { speed: 0 },
+            utilization: { gpu: 0, memory: 5 },
+            memory: { total: 24576, used: 1024 },
+            power: { draw: 30.0, limit: 450.0 },
+            clocks: { graphics: 210 },
+            },
+        ],
+        };
+
+        const formatMemory = (mb) =>
+        mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
+        const getUtilColor = (val) =>
+        val < 30 ? "bg-emerald-500" : val < 70 ? "bg-amber-500" : "bg-rose-500";
+        const getTempColor = (temp) =>
+        temp < 50
+            ? "text-emerald-500"
+            : temp < 80
+            ? "text-amber-500"
+            : "text-rose-500";
 
         function initLucide(retries = 8, delay = 200) {
-            if (window.lucide) {
-                window.lucide.createIcons({ root: root });
-            } else if (retries > 0) {
-                setTimeout(() => initLucide(retries - 1, delay), delay);
-            }
+        if (window.lucide) {
+            window.lucide.createIcons({ root: root });
+        } else if (retries > 0) {
+            setTimeout(() => initLucide(retries - 1, delay), delay);
+        }
         }
 
         const generateGPUCard = (gpu) => `
-            <div class="gpu-card" id="gpu-card-${gpu.index}">
-                <div class="gpu-card-header">
-                    <h2 class="gpu-name">${gpu.name}</h2>
-                    <span class="gpu-badge"># ${gpu.index}</span>
-                </div>
-                <div class="gpu-body">
-                    <div class="gpu-metrics-grid">
-                        <div>
-                            <div class="metric-item">
-                                <i data-lucide="thermometer" id="icon-temp-${gpu.index}" class="icon ${getTempColor(gpu.temperature)}"></i>
+                    <div class="gpu-card" id="gpu-card-${gpu.index}">
+                        <div class="gpu-card-header">
+                            <h2 class="gpu-name">${gpu.name}</h2>
+                            <span class="gpu-badge"># ${gpu.index}</span>
+                        </div>
+                        <div class="gpu-body">
+                            <div class="gpu-metrics-grid">
                                 <div>
-                                    <p class="metric-label">Temperature</p>
-                                    <p class="metric-value ${getTempColor(gpu.temperature)}" id="val-temp-${gpu.index}">${gpu.temperature}°C</p>
+                                    <div class="metric-item">
+                                        <i data-lucide="thermometer" id="icon-temp-${gpu.index}" class="icon ${getTempColor(gpu.temperature)}"></i>
+                                        <div><p class="metric-label">Temperature</p><p class="metric-value ${getTempColor(gpu.temperature)}" id="val-temp-${gpu.index}">${gpu.temperature}°C</p></div>
+                                    </div>
+                                    <div class="metric-item">
+                                        <i data-lucide="fan" class="icon text-blue-500"></i>
+                                        <div><p class="metric-label">Fan Speed</p><p class="metric-value text-blue-500" id="val-fan-${gpu.index}">${gpu.fan.speed}%</p></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="progress-header"><i data-lucide="cpu" class="icon icon-muted" style="margin-right:4px;"></i><p class="metric-label">GPU Load</p><span id="val-util-${gpu.index}">${gpu.utilization.gpu}%</span></div>
+                                    <div class="progress-track"><div id="bar-util-${gpu.index}" class="progress-fill ${getUtilColor(gpu.utilization.gpu)}" style="width: ${gpu.utilization.gpu}%"></div></div>
+                                    <div class="progress-header" style="margin-top: 12px;"><i data-lucide="hard-drive" class="icon text-blue-500" style="margin-right:4px;"></i><p class="metric-label">Memory</p><span id="val-mem-pct-${gpu.index}">${((gpu.memory.used / gpu.memory.total) * 100).toFixed(1)}%</span></div>
+                                    <div class="progress-track"><div id="bar-mem-${gpu.index}" class="progress-fill bg-blue-500" style="width: ${(gpu.memory.used / gpu.memory.total) * 100}%"></div></div>
+                                    <p class="progress-footer" id="val-mem-text-${gpu.index}">${formatMemory(gpu.memory.used)} / ${formatMemory(gpu.memory.total)}</p>
                                 </div>
                             </div>
-                            <div class="metric-item">
-                                <i data-lucide="fan" class="icon text-blue-500"></i>
-                                <div>
-                                    <p class="metric-label">Fan Speed</p>
-                                    <p class="metric-value text-blue-500" id="val-fan-${gpu.index}">${gpu.fan.speed}%</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div>
-                            <div class="progress-header">
-                                <i data-lucide="cpu" class="icon icon-muted" style="margin-right:4px;"></i>
-                                <p class="metric-label">GPU Load</p>
-                                <span id="val-util-${gpu.index}">${gpu.utilization.gpu}%</span>
-                            </div>
-                            <div class="progress-track">
-                                <div id="bar-util-${gpu.index}" class="progress-fill ${getUtilColor(gpu.utilization.gpu)}" style="width: ${gpu.utilization.gpu}%"></div>
-                            </div>
-                            
-                            <div class="progress-header" style="margin-top: 12px;">
-                                <i data-lucide="hard-drive" class="icon text-blue-500" style="margin-right:4px;"></i>
-                                <p class="metric-label">Memory</p>
-                                <span id="val-mem-pct-${gpu.index}">${((gpu.memory.used / gpu.memory.total) * 100).toFixed(1)}%</span>
-                            </div>
-                            <div class="progress-track">
-                                <div id="bar-mem-${gpu.index}" class="progress-fill bg-blue-500" style="width: ${(gpu.memory.used / gpu.memory.total) * 100}%"></div>
-                            </div>
-                            <p class="progress-footer" id="val-mem-text-${gpu.index}">${formatMemory(gpu.memory.used)} / ${formatMemory(gpu.memory.total)}</p>
-                        </div>
-                    </div>
-                    <div class="gpu-footer">
-                        <div class="metric-item" style="margin:0">
-                            <i data-lucide="clock" class="icon text-purple-500"></i>
-                            <div>
-                                <p class="metric-label">Clock Speed</p>
-                                <p class="metric-value" id="val-clock-${gpu.index}">${gpu.clocks.graphics} MHz</p>
-                            </div>
-                        </div>
-                        <div class="metric-item" style="margin:0">
-                            <i data-lucide="zap" class="icon text-amber-500"></i>
-                            <div>
-                                <p class="metric-label">Power Draw</p>
-                                <p class="metric-value"><span id="val-power-${gpu.index}">${gpu.power.draw.toFixed(1)}</span>W <span style="font-size:0.7rem; color:var(--body-text-color-subdued)">/ ${gpu.power.limit}W</span></p>
+                            <div class="gpu-footer">
+                                <div class="metric-item" style="margin:0"><i data-lucide="clock" class="icon text-purple-500"></i><div><p class="metric-label">Clock Speed</p><p class="metric-value" id="val-clock-${gpu.index}">${gpu.clocks.graphics} MHz</p></div></div>
+                                <div class="metric-item" style="margin:0"><i data-lucide="zap" class="icon text-amber-500"></i><div><p class="metric-label">Power Draw</p><p class="metric-value"><span id="val-power-${gpu.index}">${gpu.power.draw.toFixed(1)}</span>W <span style="font-size:0.7rem; color:var(--body-text-color-subdued)">/ ${gpu.power.limit}W</span></p></div></div>
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-        `;
+                `;
 
         function updateGpuDOM(gpus) {
-            gpus.forEach(gpu => {
-                document.getElementById(`val-temp-${gpu.index}`).innerText = `${gpu.temperature}°C`;
-                document.getElementById(`val-fan-${gpu.index}`).innerText = `${gpu.fan.speed}%`;
-                document.getElementById(`val-util-${gpu.index}`).innerText = `${gpu.utilization.gpu}%`;
-                document.getElementById(`val-mem-pct-${gpu.index}`).innerText = `${((gpu.memory.used / gpu.memory.total) * 100).toFixed(1)}%`;
-                document.getElementById(`val-mem-text-${gpu.index}`).innerText = `${formatMemory(gpu.memory.used)} / ${formatMemory(gpu.memory.total)}`;
-                document.getElementById(`val-clock-${gpu.index}`).innerText = `${gpu.clocks.graphics} MHz`;
-                document.getElementById(`val-power-${gpu.index}`).innerText = `${gpu.power.draw.toFixed(1)}`;
-                
-                const utilBar = document.getElementById(`bar-util-${gpu.index}`);
-                utilBar.style.width = `${gpu.utilization.gpu}%`;
-                utilBar.className = `progress-fill ${getUtilColor(gpu.utilization.gpu)}`;
-                
-                document.getElementById(`bar-mem-${gpu.index}`).style.width = `${(gpu.memory.used / gpu.memory.total) * 100}%`;
-                
-                const newTempClass = getTempColor(gpu.temperature);
-                document.getElementById(`val-temp-${gpu.index}`).className = `metric-value ${newTempClass}`;
-                
-                const tempIconSvg = document.getElementById(`icon-temp-${gpu.index}`);
-                if(tempIconSvg) {
-                    tempIconSvg.setAttribute('class', `lucide lucide-thermometer icon ${newTempClass}`);
-                }
-            });
+        gpus.forEach((gpu) => {
+            const els = {
+            t: document.getElementById(`val-temp-${gpu.index}`),
+            f: document.getElementById(`val-fan-${gpu.index}`),
+            u: document.getElementById(`val-util-${gpu.index}`),
+            mp: document.getElementById(`val-mem-pct-${gpu.index}`),
+            mt: document.getElementById(`val-mem-text-${gpu.index}`),
+            c: document.getElementById(`val-clock-${gpu.index}`),
+            p: document.getElementById(`val-power-${gpu.index}`),
+            ub: document.getElementById(`bar-util-${gpu.index}`),
+            mb: document.getElementById(`bar-mem-${gpu.index}`),
+            it: document.getElementById(`icon-temp-${gpu.index}`),
+            };
+            if (els.t) els.t.innerText = `${gpu.temperature}°C`;
+            if (els.f) els.f.innerText = `${gpu.fan.speed}%`;
+            if (els.u) els.u.innerText = `${gpu.utilization.gpu}%`;
+            if (els.mp)
+            els.mp.innerText = `${((gpu.memory.used / gpu.memory.total) * 100).toFixed(1)}%`;
+            if (els.mt)
+            els.mt.innerText = `${formatMemory(gpu.memory.used)} / ${formatMemory(gpu.memory.total)}`;
+            if (els.c) els.c.innerText = `${gpu.clocks.graphics} MHz`;
+            if (els.p) els.p.innerText = `${gpu.power.draw.toFixed(1)}`;
+            if (els.ub) {
+            els.ub.style.width = `${gpu.utilization.gpu}%`;
+            els.ub.className = `progress-fill ${getUtilColor(gpu.utilization.gpu)}`;
+            }
+            if (els.mb)
+            els.mb.style.width = `${(gpu.memory.used / gpu.memory.total) * 100}%`;
+            if (els.it)
+            els.it.setAttribute(
+                "class",
+                `lucide lucide-thermometer icon ${getTempColor(gpu.temperature)}`,
+            );
+            if (els.t)
+            els.t.className = `metric-value ${getTempColor(gpu.temperature)}`;
+        });
         }
 
         async function fetchAndUpdate() {
-            try {
-                const data = await server.get_gpu_stats();
-               
-                if (timeVal) {
-                    timeVal.innerText = new Date().toLocaleTimeString();
-                }
+        let data;
+        try {
+            if (typeof server !== "undefined" && server.get_gpu_stats) {
+            data = await server.get_gpu_stats();
+            } else {
+            data = MOCK_DATA;
+            }
 
-                if (!data.hasNvidiaSmi && data.error) {
-                    alertBox.innerHTML = `<div class="alert-box"><strong>Nota:</strong> ${data.error}</div>`;
-                }
+            if (timeVal) timeVal.innerText = new Date().toLocaleTimeString();
 
-                if (data.gpus && data.gpus.length > 0) {
-                    if (data.gpus.length !== renderedGpuCount) {
-                        root.innerHTML = data.gpus.map(gpu => generateGPUCard(gpu)).join('');
-                        initLucide();
-                        renderedGpuCount = data.gpus.length;
-                    } else {
-                        updateGpuDOM(data.gpus);
-                    }
-                } else {
-                    root.innerHTML = '<div style="color:var(--body-text-color)">No GPUs found.</div>';
-                }
-            } catch (error) {
-                console.error("Fetch GPU error:", error);
+            if (!data.hasNvidiaSmi) {
+            if (data.error)
+                alertBox.innerHTML = `<div class="alert-box"><strong>Nota:</strong> ${data.error}</div>`;
+            if (!data.isMock) data = MOCK_DATA;
+            }
+
+            if (data.gpus && data.gpus.length > 0) {
+            if (data.gpus.length !== renderedGpuCount) {
+                root.innerHTML = data.gpus.map((gpu) => generateGPUCard(gpu)).join("");
+                initLucide();
+                renderedGpuCount = data.gpus.length;
+            } else {
+                updateGpuDOM(data.gpus);
+            }
+            }
+        } catch (error) {
+            console.error("Fetch GPU error:", error);
+            if (renderedGpuCount === -1) {
+            root.innerHTML = MOCK_DATA.gpus
+                .map((gpu) => generateGPUCard(gpu))
+                .join("");
+            initLucide();
+            renderedGpuCount = MOCK_DATA.gpus.length;
             }
         }
+        }
 
-        fetchAndUpdate();        
-        intervalId = setInterval(fetchAndUpdate, props.update_interval);
+        fetchAndUpdate();
+        const intervalId = setInterval(fetchAndUpdate, props.update_interval);
         return () => clearInterval(intervalId);
+
         """
 
         super().__init__(
@@ -414,5 +423,5 @@ class GPUMonitor(gr.HTML):
             show_last_updated=str(show_last_updated).lower(),
             **kwargs
         )
-
+    
     def api_info(self): return {"type": "null"}
